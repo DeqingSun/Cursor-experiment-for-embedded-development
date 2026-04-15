@@ -39,3 +39,23 @@ I have Saleae Logic Analyzer and it supports API access, so it should be able to
 And inside Logic2 software, we need to enable "Automation Server", and configure the channel correctly.
 
 ![Logic2 config](imgs/logic2Setup.png)
+
+Then I give Cursor agent instruction:
+
+```
+I want to use saleae logic to check if the LED is blinking with correct interval. I have connected channel 0 of Saleae logic to the pin 13. And I've installed logic2-automation. 
+Can you help me write code to use API to measure it? You need to test the code until it runs well. 
+```
+
+And I did get the ```saleae_measure_blink.py```, when the script runs. The logic2 software start to capture signals. And I got result:
+
+```
+% python3 saleae_measure_blink.py
+Connected to Logic2 app_version=2.4.43 api=Version(major=1, minor=0, patch=0)
+period: n=2 mean=1.997355s stdev=0.000000s min=1.997354s max=1.997355s
+high  : n=3 mean=0.965692s stdev=0.046649s min=0.899721s max=0.998678s
+low   : n=3 mean=0.998676s stdev=0.000000s min=0.998676s max=0.998677s
+PASS: blink timing within tolerance
+```
+
+And yes! This experiment proves the agent is possble to use API of hardware tools to replace human in this blinking example.
