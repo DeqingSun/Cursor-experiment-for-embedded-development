@@ -32,6 +32,8 @@ Great! now please create a blinking LED code on pin13 for Arduino, inside the ex
 
 And the "blink_pin13" shows up and the "compile_and_upload.sh" script can compile and upload the code, I can see the LED blink!
 
+![Blinking LED on Arduino Uno](imgs/uno_blink.gif)
+
 But wait, my goal was to remove myself from the loop. maybe I can use a logic analyzer to check the signal instead of me look into it.
 
 I have Saleae Logic Analyzer and it supports API access, so it should be able to automate the measurement. The Saleae Logic support "logic2-automation" library and it can be installed with ```python3 -m pip install logic2-automation```.
@@ -39,6 +41,8 @@ I have Saleae Logic Analyzer and it supports API access, so it should be able to
 And inside Logic2 software, we need to enable "Automation Server", and configure the channel correctly.
 
 ![Logic2 config](imgs/logic2Setup.png)
+
+![Logic2 to Arduino connection](imgs/saleae_connect.jpg)
 
 Then I give Cursor agent instruction:
 
@@ -52,10 +56,10 @@ And I did get the ```saleae_measure_blink.py```, when the script runs. The logic
 ```
 % python3 saleae_measure_blink.py
 Connected to Logic2 app_version=2.4.43 api=Version(major=1, minor=0, patch=0)
-period: n=2 mean=1.997355s stdev=0.000000s min=1.997354s max=1.997355s
-high  : n=3 mean=0.965692s stdev=0.046649s min=0.899721s max=0.998678s
-low   : n=3 mean=0.998676s stdev=0.000000s min=0.998676s max=0.998677s
+period: n=2 mean=1.997296s stdev=0.000001s min=1.997294s max=1.997297s
+high  : n=3 mean=0.998649s stdev=0.000000s min=0.998649s max=0.998650s
+low   : n=3 mean=0.997124s stdev=0.002152s min=0.994080s max=0.998647s
 PASS: blink timing within tolerance
-```
+```  
 
 And yes! This experiment proves the agent is possble to use API of hardware tools to replace human in this blinking example.
