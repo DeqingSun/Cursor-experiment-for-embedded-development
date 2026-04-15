@@ -53,12 +53,14 @@ Can you help me write code to use API to measure it? You need to test the code u
 
 And I did get the ```saleae_measure_blink.py```, when the script runs. The logic2 software start to capture signals. And I got result:
 
+![capture in progress](imgs/capture_in_progress.png)
+
 ```
 % python3 saleae_measure_blink.py
 Connected to Logic2 app_version=2.4.43 api=Version(major=1, minor=0, patch=0)
-period: n=2 mean=1.997296s stdev=0.000001s min=1.997294s max=1.997297s
-high  : n=3 mean=0.998649s stdev=0.000000s min=0.998649s max=0.998650s
-low   : n=3 mean=0.997124s stdev=0.002152s min=0.994080s max=0.998647s
+period: n=2 mean=1.997344s stdev=0.000002s min=1.997342s max=1.997346s
+high  : n=3 mean=0.998674s stdev=0.000001s min=0.998673s max=0.998676s
+low   : n=2 mean=0.998670s stdev=0.000002s min=0.998669s max=0.998672s
 PASS: blink timing within tolerance
 ```  
 

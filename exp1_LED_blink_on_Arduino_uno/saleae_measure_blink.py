@@ -98,22 +98,14 @@ def iter_samples_from_digital_csv(digital_csv_path: str, channel: int) -> Iterab
 
 
 def compute_blink_stats(samples: Iterable[tuple[float, int]]) -> BlinkStats:
-    last_t: Optional[float] = None
     last_v: Optional[int] = None
 
     rising_edges: list[float] = []
     falling_edges: list[float] = []
 
-    # Track segments to compute high/low durations.
-    seg_start_t: Optional[float] = None
-    seg_value: Optional[int] = None
-    highs: list[float] = []
-    lows: list[float] = []
-
     for t, v in samples:
         if last_v is None:
-            last_t, last_v = t, v
-            seg_start_t, seg_value = t, v
+            last_v = v
             continue
 
         if v != last_v:
@@ -122,22 +114,44 @@ def compute_blink_stats(samples: Iterable[tuple[float, int]]) -> BlinkStats:
                 rising_edges.append(t)
             elif last_v == 1 and v == 0:
                 falling_edges.append(t)
+            last_v = v
 
-            # close previous segment
-            if seg_start_t is not None and seg_value is not None:
-                dur = t - seg_start_t
-                if dur > 0:
-                    (highs if seg_value == 1 else lows).append(dur)
-            seg_start_t, seg_value = t, v
+    # Compute durations using edge pairing so incomplete segments at the beginning/end
+    # are naturally discarded (e.g. capture starts mid-high or ends mid-low).
+    highs: list[float] = []
+    lows: list[float] = []
 
-        last_t, last_v = t, v
+    # High = rising -> next falling
+    fi = 0
+    for r in rising_edges:
+        while fi < len(falling_edges) and falling_edges[fi] <= r:
+            fi += 1
+        if fi >= len(falling_edges):
+            break
+        highs.append(falling_edges[fi] - r)
+        fi += 1
 
-    # No attempt to close the last segment because capture ends mid-segment.
+    # Low = falling -> next rising
+    ri = 0
+    for f in falling_edges:
+        while ri < len(rising_edges) and rising_edges[ri] <= f:
+            ri += 1
+        if ri >= len(rising_edges):
+            break
+        lows.append(rising_edges[ri] - f)
+        ri += 1
+
+    # Periods: only count full cycles rising_i -> rising_{i+1} that contain a falling edge
+    # between them (ensures we saw both high and low in that cycle).
     periods: list[float] = []
+    fi = 0
     for a, b in zip(rising_edges, rising_edges[1:]):
-        dt = b - a
-        if dt > 0:
-            periods.append(dt)
+        while fi < len(falling_edges) and falling_edges[fi] <= a:
+            fi += 1
+        if fi < len(falling_edges) and falling_edges[fi] < b:
+            dt = b - a
+            if dt > 0:
+                periods.append(dt)
 
     return BlinkStats(periods_s=periods, highs_s=highs, lows_s=lows)
 
