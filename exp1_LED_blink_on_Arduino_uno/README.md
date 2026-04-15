@@ -23,3 +23,11 @@ That is nice, I can confirn the Arduino Cli is ready. Do I need to install anyth
 ```
 
 And I got another setup_arduino_uno.sh
+
+Now let‘s create a blink code.
+
+```
+Great! now please create a blinking LED code on pin13 for Arduino, inside the exp1_LED_blink_on_Arduino_uno, and another shell script to compile and upload through serial
+```
+
+And the "blink_pin13" shows up and the "compile_and_upload.sh" script can compile and upload the code, I can see the LED blink!
