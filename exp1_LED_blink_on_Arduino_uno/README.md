@@ -16,3 +16,10 @@ I found the Binary on https://arduino.github.io/arduino-cli/1.4/installation/
 
 And I got install_arduino_cli.sh, and the "arduino_cli" folder pops up!
 
+Then I typed:
+
+```
+That is nice, I can confirn the Arduino Cli is ready. Do I need to install anything to compile and upload Arduino Uno? If so I also want it to stay inside the "arduino_cli" folder
+```
+
+And I got another setup_arduino_uno.sh
