@@ -31,3 +31,11 @@ Great! now please create a blinking LED code on pin13 for Arduino, inside the ex
 ```
 
 And the "blink_pin13" shows up and the "compile_and_upload.sh" script can compile and upload the code, I can see the LED blink!
+
+But wait, my goal was to remove myself from the loop. maybe I can use a logic analyzer to check the signal instead of me look into it.
+
+I have Saleae Logic Analyzer and it supports API access, so it should be able to automate the measurement. The Saleae Logic support "logic2-automation" library and it can be installed with ```python3 -m pip install logic2-automation```.
+
+And inside Logic2 software, we need to enable "Automation Server", and configure the channel correctly.
+
+![Logic2 config](imgs/logic2Setup.png)
