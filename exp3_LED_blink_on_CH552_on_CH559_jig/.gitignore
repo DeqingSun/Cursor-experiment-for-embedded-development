@@ -1,1 +1,4 @@
 arduino_cli/
+ch552_p33_timer2_blink/build
+ch552_p33_timer2_blink/build_ci
+*.pyc

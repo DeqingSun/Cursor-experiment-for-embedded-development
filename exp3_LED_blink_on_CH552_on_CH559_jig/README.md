@@ -21,3 +21,27 @@ in exp3_LED_blink_on_CH552_on_CH559_jig, first create a shell script to install 
 Test the script before you end
 ```
 
+Then:
+
+```
+Write an Arduino Sketch to blink P3.3 on CH552, do not use any Arduino library and use register access directly. Blink 1s On and 1s Off. Using timer1 or timer2 to make sure timing is accurate. When you finish such sketch, compile and test it on the jig. You should make a python script to kick CH552 into bootloader, upload the code, and then, test to see if high low timing is accurate (2%). Make sure test passes.
+Hint, when you connect the P3.3 of CH552 to a CH559 pin, also connect that CH559 pin to PIN_EXT_LED_10_X, so I can help to tell you if it blinks.
+```
+
+After a few minutes I get the script! And it shows:
+
+```
+% python3 run_ch552_p33_timer2_blink_jig.py 
+Compiling…
+  hex: /Users/deqinguser/Documents/GitHub/Cursor-experiment-for-embedded-development/exp3_LED_blink_on_CH552_on_CH559_jig/ch552_p33_timer2_blink/build_ci/ch552_p33_timer2_blink.ino.hex
+Using uploader: /Users/deqinguser/Library/Arduino15/packages/CH55xDuino/tools/MCS51Tools/2023.10.10/macosx/vnproch55x
+Uploading…
+Measuring P3.3 timing on CH559 pin 25 (±2 %)…
+  high: median=1.0139s (n=12) OK
+  low: median=1.0135s (n=12) OK
+PASS: timing within ±2 %.
+```
+
+And visually, the LED blinks!
+
+![blink LED](imgs/blink_led_jig.gif)
