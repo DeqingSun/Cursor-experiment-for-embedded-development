@@ -12,3 +12,12 @@ First ask this to add some comment:
 Now I'm working in exp3_LED_blink_on_CH552_on_CH559_jig. Please read the ch559_jig_code.py, and add instrucion as comment in that file to talk about how to use the library. And what each function do. You can refer to run_arduino_test.py, README.md, and https://github.com/DeqingSun/CH552-Automatic-Test-Jig . The source code on the other side of CH559 is CH559_firmware.
 ```
 
+Now we start the challenge.
+
+We generate script to install Arduino.
+
+```
+in exp3_LED_blink_on_CH552_on_CH559_jig, first create a shell script to install Arduino cli, and add ch55xduino package, refer to scripts in exp1_LED_blink_on_Arduino_uno
+Test the script before you end
+```
+
