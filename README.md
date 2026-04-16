@@ -19,4 +19,11 @@ I am **not** trying to automate physical tasks such as soldering or desoldering.
 
 The goal is to see how far this workflow can be pushed toward automation, even when real hardware remains part of the loop.
 
+## Summary of experiment
+
+| Experiment | Detail |
+|------------|--------|
+| Exp1 | Using Cursor Agent to install Arduino Cli, compile blink code for Uno, upload code and check if LED is blinking with correct timing |
+| Exp2 | Generate code for PWM with register access. check PWM output for timing |
+| Exp3 | Create CH552 blink code, test the code with custom made test jig |
 
