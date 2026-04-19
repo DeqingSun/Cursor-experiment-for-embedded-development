@@ -47,3 +47,116 @@ You may create sketch and compile and upload to test it in real hardware. "uploa
 The ultimate goal is, you write a sketch, it can run on the CH572, set correct register, reset and the CH572 stay in bootloader for 10 seconds. You should be able to see a USB device with Device VendorID/ProductID: 0x1A86/0x55E0.
 The hardware setup is ready and tested. You just code, upload and test by yourself over and over again until you reach the ultimate goal. 
 ```
+
+after 50 mins with 15M token used, I got:
+
+## Experimental Results
+
+### RB_BOOT_LOAD_MAN — Conclusion
+
+After extensive testing (9+ methods with the `minimal_ch572` sketch), the experiment concluded that **`RB_BOOT_LOAD_MAN` cannot be set from user code via software reset on CH572 (bootloader v02.30)**.
+
+**Root cause (confirmed by hardware diagnostic):**
+
+The CH572 datasheet states that writing `RB_SOFTWARE_RESET=1` while
+`RB_WDOG_INT_EN=1`, `RB_ROM_CODE_WE=1` (bits[7:6]=01b of `R8_GLOB_ROM_CFG`),
+`RB_ROM_DATA_WE=0`, and `128 ≤ R8_WDOG_COUNT < 192` will set `RB_BOOT_LOAD_MAN=1`.
+
+However, in practice on this silicon:
+
+- **All RWA (safe-access) registers — including `R8_RST_WDOG_CTRL` (`RB_WDOG_INT_EN`)
+  and `R8_GLOB_ROM_CFG` (`RB_ROM_CODE_WE`) — are reset to their default value (0) by the
+  hardware during a software reset.**
+- `R8_WDOG_COUNT` also resets to ~0 after the software reset.
+- Therefore the boot condition hardware evaluator always sees all-zeros and sets
+  `RB_BOOT_LOAD_MAN=0`.
+
+Confirmed using `R8_GLOB_RESET_KEEP` (which **does** survive software reset) as a marker:
+after triggering a software reset with `RESET_KEEP=0xAB`, `WDOG_INT_EN=1`, and
+`ROM_CODE_WE=0x40`, the startup snapshot captured before USB init showed:
+
+```
+s_RST_WDOG_CTRL = 0x00   ← RB_WDOG_INT_EN was CLEARED
+s_GLOB_ROM_CFG  = 0x00   ← ROM_CODE_WE was CLEARED
+s_WDOG_COUNT    = 1      ← Reset to near-zero
+s_RESET_KEEP    = 0xAB   ← Survived (confirming the test write worked)
+RESET_FLAG      = 0      ← Confirms software reset occurred
+```
+
+### Working Alternative: APPJumpBoot (flash erasure)
+
+WCH's own `SimpleUsbCdc.c` uses `APPJumpBoot` which:
+1. Erases flash page 0 (first 4 KB at address 0)
+2. Triggers a software reset
+
+The bootloader then sees `app_valid=0` (no valid user application) and immediately
+enters USB DFU mode — without needing `RB_BOOT_LOAD_MAN=1`.
+
+**Confirmed on hardware:** USB device `0x1A86/0x55E0` appeared at **t+0.39 s** after
+triggering `APPJumpBoot` (Method B in `minimal_ch572.ino`).
+
+The downside is that it destroys the user application and requires re-flashing via wchisp afterwards.
+
+Then let's do:
+
+```
+Thank you for your hard work. I know you have evidence that s_RST_WDOG_CTRL = 0x00 s_GLOB_ROM_CFG = 0x00 after reset in APP level. Can you go back to decompiled bootloader to check if the bootloader did it, or you think the hardware did it? Also do you think it is possible to use debugger to check registers while in bootloader (did bootloader disabled debugging)?
+```
+
+I got answer:
+
+```
+Q1: Was it the bootloader or the hardware that cleared R8_RST_WDOG_CTRL / R8_GLOB_ROM_CFG?
+It was the hardware, not the bootloader.
+
+Here is every write the bootloader makes to those registers, decoded:
+
+R8_RST_WDOG_CTRL (offset 70):
+
+
+3d574
+Lines 1658-1658
+   3d574:	0467c703          	lbu	a4,70(a5) # 0x40001046   ← READ wdog_ctrl
+   3d578:	00176713          	ori	a4,a4,1                  ← OR bit 0 (RB_SOFTWARE_RESET)
+   3d57c:	04e78323          	sb	a4,70(a5)                ← WRITE to trigger reset
+   3d580:	04078023          	sb	zero,64(a5)              ← close safe access
+   3d584:	a001                	c.j	0x3d584                 ← infinite loop (waiting for reset)
+That's the only write — it sets RB_SOFTWARE_RESET to jump to the user app after DFU timeout. The bootloader never writes zero to R8_RST_WDOG_CTRL and never touches RB_WDOG_INT_EN.
+
+R8_GLOB_ROM_CFG (offset 68):
+
+Every write is a read-modify-write that only touches bit 5 (RB_ROM_CTRL_EN):
+
+ori a4,a4,32 → set bit 5 (before flash write command)
+andi a4,a4,0xDF → clear bit 5 (after flash write)
+There is one late occurrence (andi a4,a4,0x10 at 0x3D8EE) that would clear ROM_CODE_WE, but it's inside the DFU firmware-download handler — executed only after a DFU transfer completes, long after the RB_BOOT_LOAD_MAN check.
+
+Crucially, these bootloader writes happen at 0x3CA90, 0x3CB5E, 0x3D4B0, 0x3D534, 0x3D8F0 — all after the RB_BOOT_LOAD_MAN decision points at 0x3D59C and 0x3D6CA.
+
+Conclusion: The hardware resets all RWA-class register bits to default during the software reset, before the bootloader's first instruction executes. This is confirmed experimentally by our diagnostic: R8_GLOB_RESET_KEEP (a plain RW register, not RWA) survived the reset with 0xAB, while all RWA registers were 0x00.
+
+Q2: Can a debugger read registers while the bootloader is running?
+Technically yes, and the bootloader does NOT disable debugging. Here are all the CSR writes in the entire bootloader:
+
+
+57
+Lines 46-46
+   3c08c:  csrrw  zero,0xbc0,t0    ← 0xBC0 = WCH INTSYSCR (HW stack, nested IRQ)
+   3c092:  csrrw  zero,0x804,t0    ← 0x804 = WCH custom (fast interrupt vector enable)
+   3c09a:  csrrs  zero,mstatus,t0  ← enable MIE/MPIE (machine interrupt enable)
+   3c0aa:  csrrw  zero,mtvec,t0    ← set interrupt vector table
+   3c0b6:  csrrw  zero,mepc,t0     ← set exception return address (for mret)
+No writes to dcsr (0x7B0), dpc (0x7B1), or dscratch (0x7B2/0x7B3). The RISC-V debug module is untouched.
+
+Practical approach to actually use a debugger:
+
+The hard part is timing. With app_valid=1 (normal user app present), the RB_BOOT_LOAD_MAN check at 0x3D6CA only triggers after a ~16 ms DFU window — hard to catch with a run-and-attach approach. But there's a much easier way:
+
+Use bootMethodB first (erase flash page 0), which makes app_valid=0. The bootloader then parks in the DFU loop at 0x3D3CC indefinitely, waiting for USB DFU commands.
+While it's spinning in that loop, attach WCH-Link + MounRiver Studio (or OpenOCD with the WCH RISC-V patch).
+Read 0x40001046 directly — you'll see R8_RST_WDOG_CTRL exactly as the bootloader sees it, and can definitively confirm its value is 0x00 at that point.
+Alternatively, set a hardware breakpoint at 0x3D59C (the lbu a5,70(a3) instruction) with "halt at reset" enabled — WCH-Link supports this — and you can step through the RB_BOOT_LOAD_MAN check in real time. This would be the most direct experimental confirmation.
+
+The one minor wrinkle: CFG_ROM_READ = 0xFF is set on this chip (ISP read protection), but on WCH chips this only protects against ISP reads, not WCH-Link debug access. The debug module should still work.
+```
+
