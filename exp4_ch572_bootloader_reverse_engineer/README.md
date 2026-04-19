@@ -38,3 +38,11 @@ in exp4_ch572_bootloader_reverse_engineer, first create a shell script to instal
 After you create the shell script to install Arduino, run it to install Arduino. Then, create a minimal sketch and a script to compile it. Then create a python script that can accept a hex file, run the "reboot.py" to kick CH572 into bootloader, and then upload the script to the CH572 with WCH-ISP (already in Arduino package). The upload script should only take the hex file. No serial port is needed because reboot.py can search for port, and WCH-ISP does not need a port.
 Test all the script before you end.
 ```
+
+Then let's do the real thing.
+
+```
+in "exp4_ch572_bootloader_reverse_engineer", As we researched in "BOOTLOADER_REVERSE_ENGINEERING_REPORT.md", the CH572 can stay in bootload if the RB_BOOT_LOAD_MAN is 1 during reboot. I want you to do experiment to confirm how to set RB_BOOT_LOAD_MAN to 1, as the datasheet is not very accurate.
+You may create sketch and compile and upload to test it in real hardware. "upload_hex_ch572.py" can help you to upload. If you want to see registers, you should be able to copy it into a variable to send it through serial. Refer to exp4_ch572_bootloader_reverse_engineer/arduino_cli/data/packages/WCH/hardware/ch32v/26.2.6/libraries/SimpleUsbSerial/example/Simple_USB_CDC_TEST for serial communication. "APPJumpBoot" in exp4_ch572_bootloader_reverse_engineer/arduino_cli/data/packages/WCH/hardware/ch32v/26.2.6/libraries/SimpleUsbSerial/src/SimpleUsbCdc.c has somd code showing how to modify protected register and how to reboot system. Info about registers can be found both in datasheet CH572DS1.txt and board support source in exp4_ch572_bootloader_reverse_engineer/arduino_cli/data/packages/WCH/hardware/ch32v/26.2.6/system/CH572
+The ultimate goal is, you write a sketch, it can run on the CH572, set correct register, reset and the CH572 stay in bootloader for 10 seconds. You should be able to see a USB device with Device VendorID/ProductID: 0x1A86/0x55E0.
+```
