@@ -284,22 +284,56 @@ void bootMethodC(void)
     __builtin_unreachable();
 }
 
-/* Method D: Jump to bootloader ROM entry (0x3C000) WITHOUT setting conditions.
+/* Method D: Clean jump to bootloader ROM (0x3C000) with USB + IRQs torn down.
  *
- * Baseline test. The bootloader will:
- *   1. Re-init its stack/BSS
- *   2. Wait ~16ms for USB DFU activity
- *   3. See RB_BOOT_LOAD_MAN = 0 (conditions not set)
- *   4. Trigger its own software reset -> CPU jumps to user flash -> app comes back
+ * This variant properly shuts down the USB peripheral and all interrupt sources
+ * before jumping. This lets the bootloader detect the D+ line state fresh.
  *
- * Expect: USB briefly disconnects, then user app re-enumerates (~16ms later).
+ * To test that the bootloader is genuinely running and its D+ detection path
+ * works: attach a 1.5kΩ pull-up resistor from the USB D+ pin to 3.3V BEFORE
+ * (or immediately after) sending this command.
+ *
+ * With the internal D+ pull-up cleared, D+ floats. The external pull-up pulls
+ * it high. The bootloader's D+ detection function (at ROM 0x3D1F0) sees high
+ * and enters DFU mode → 0x1A86/0x55E0 appears on the host.
+ *
+ * Without the external pull-up, D+ stays low and the bootloader falls through
+ * its 16ms window → triggers software reset → user app comes back.
  */
 __attribute__((section(".highcode"), noinline))
 void bootMethodD(void)
 {
+    // --- 1. Disable all PFIC individual interrupt enables ---
+    // Writing 1 to IRER bit = disable that IRQ (like ARM NVIC ICER)
+    *((volatile uint32_t *)0xE000E180) = 0xFFFFFFFF;  // PFIC IRER[0]: IRQs  0-31
+    *((volatile uint32_t *)0xE000E184) = 0xFFFFFFFF;  // PFIC IRER[1]: IRQs 32-63
+
+    // --- 2. Clear global MIE so no interrupt can fire during teardown ---
     __asm volatile("csrrci zero, mstatus, 8" ::: "memory");
     __asm volatile("fence.i" ::: "memory");
 
+    // --- 3. Tear down USB peripheral ---
+    // 3a. Disable all USB interrupt sources
+    R8_USB_INT_EN = 0x00;
+
+    // 3b. Disable USB device SIE and internal D+ pull-up
+    //     R8_USB_CTRL bits[5:4]=00 → "disable USB device and internal pull-up"
+    R8_USB_CTRL = 0x00;
+
+    // 3c. Disable USB physical port I/O.
+    //     Set RB_UD_PD_DIS so the on-chip D+/D− pull-downs are OFF;
+    //     D+ will float, letting an external 1.5kΩ pull-up dominate.
+    R8_UDEV_CTRL = RB_UD_PD_DIS;   // = 0x80
+
+    // 3d. Clear the sleep-mode software pull-up as well
+    R16_PIN_ALTERNATE &= (uint16_t)~RB_UDP_PU_EN;  // clear bit 12
+
+    // --- 4. Delay ~1 ms so the USB host registers the disconnect ---
+    for (volatile uint32_t i = 0; i < 48000; i++) { __asm volatile("nop"); }
+
+    // --- 5. Jump to bootloader ROM — no return ---
+    //     Bootloader re-initialises its own stack (0x2003E800) and BSS,
+    //     then calls the D+ detection routine at ROM 0x3D1F0.
     __asm volatile(
         "li t0, 0x3C000\n"
         "jr t0\n"
@@ -477,10 +511,13 @@ void loop()
                 break;
             }
             case 'd': {
-                SerialUSB.println(">> Method D: JUMP to bootloader ROM 0x3C000, no conditions (baseline)");
-                SerialUSB.println("   Bootloader will wait ~16ms, see RB_BOOT_LOAD_MAN=0,");
-                SerialUSB.println("   trigger its own software reset -> user app comes back.");
-                SerialUSB.flush(); delay(200);
+                SerialUSB.println(">> Method D: JUMP to bootloader ROM 0x3C000 (USB + IRQs torn down)");
+                SerialUSB.println("   Disables all PFIC IRQs, clears MIE, shuts down USB peripheral,");
+                SerialUSB.println("   releases D+ (internal pull-up OFF, on-chip pull-down OFF).");
+                SerialUSB.println("   Then jumps to 0x3C000 — bootloader detects D+ state fresh.");
+                SerialUSB.println("   >> With 1.5k pull-up on D+ to 3.3V: expect 0x1A86/0x55E0 DFU!");
+                SerialUSB.println("   >> Without pull-up: bootloader resets -> app returns in ~16ms.");
+                SerialUSB.flush(); delay(300);
                 bootMethodD();
                 break;
             }
