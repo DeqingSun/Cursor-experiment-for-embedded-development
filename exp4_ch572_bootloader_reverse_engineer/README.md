@@ -35,6 +35,6 @@ Let's get the Arduino ready:
 
 ```
 in exp4_ch572_bootloader_reverse_engineer, first create a shell script to install Arduino cli, and add ch572 package from https://github.com/DeqingSun/arduino_core_ch32/releases/download/initBinStorage/package_ch32v_index_release.json, refer to scripts in exp1_LED_blink_on_Arduino_uno. When compile, the board should be "CH572_EVT", and the upload method should be "WCH-ISP". 
-After you create the shell script to install Arduino, run it to install Arduino. Then create a python script that can accept a hex file, run the "reboot.py" to kick CH572 into bootloader, and then upload the script to the CH572 with WCH-ISP (already in Arduino package).
-Test all the script before you end
+After you create the shell script to install Arduino, run it to install Arduino. Then, create a minimal sketch and a script to compile it. Then create a python script that can accept a hex file, run the "reboot.py" to kick CH572 into bootloader, and then upload the script to the CH572 with WCH-ISP (already in Arduino package). The upload script should only take the hex file. No serial port is needed because reboot.py can search for port, and WCH-ISP does not need a port.
+Test all the script before you end.
 ```
