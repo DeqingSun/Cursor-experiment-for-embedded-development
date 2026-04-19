@@ -26,4 +26,4 @@ The goal is to see how far this workflow can be pushed toward automation, even w
 | Exp1 | Using Cursor Agent to install Arduino Cli, compile blink code for Uno, upload code and check if LED is blinking with correct timing |
 | Exp2 | Generate code for PWM with register access. check PWM output for timing |
 | Exp3 | Create CH552 blink code, test the code with custom made test jig |
-
+| Exp4 | Reverse engineer CH572 bootloader feature, not really successful due to context limit |

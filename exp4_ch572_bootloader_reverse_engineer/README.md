@@ -1,5 +1,9 @@
 # Reverse engineer a bootloader and test the undocumented feature.
 
+## Conclusion
+
+The goal might be unachievable. However, this experiment shows strength and weakness of Cursor agent. The Agent can "Think", "Code" and "Test" as long as the hardware setup allow computer to access necessary hardware read and write. And this does lead to some great finding. However, due to the limit of context, the agent will forget important finding from previous iterations. Maybe I did not set it up properly.
+
 ## Reverse engineer bootloader to check code logic
 
 OK, we got LED blinking, and now let's do something real. Just like this Abstruse Goose comic. ([Archive since original website is down](https://github.com/s-macke/Abstruse-Goose-Archive/blob/master/comics/474.md))
