@@ -1,5 +1,7 @@
 # Reverse engineer a bootloader and test the undocumented feature.
 
+## Reverse engineer bootloader to check code logic
+
 OK, we got LED blinking, and now let's do something real. Just like this Abstruse Goose comic. ([Archive since original website is down](https://github.com/s-macke/Abstruse-Goose-Archive/blob/master/comics/474.md))
 
 ![Arithmetic for Beginners](imgs/If_the_authors_of_computer_programming_books_wrote_arithmetic_text_books.png)
@@ -24,3 +26,15 @@ Im particularlly interested in in which case the bootloader will stay to wait fo
 ```
 
 And the generated "BOOTLOADER_REVERSE_ENGINEERING_REPORT.md", there is mentioned RB_BOOT_LOAD_MAN is checked for whether it is 1. The next step is to do experiment on real hardware to see how to set the bit, as the datasheet is not clear how to do it.
+
+## Test undocumented feature
+
+First we need to prepare the test environment. I connected a [ch55xRebootTool](https://github.com/DeqingSun/ch55xduino/tree/ch55xduino/pcb/ch55xRebootTool) to power cycle and kick CH572 into bootloader, and the CH572 target is a general board with USB connection. 
+
+Let's get the Arduino ready:
+
+```
+in exp4_ch572_bootloader_reverse_engineer, first create a shell script to install Arduino cli, and add ch572 package from https://github.com/DeqingSun/arduino_core_ch32/releases/download/initBinStorage/package_ch32v_index_release.json, refer to scripts in exp1_LED_blink_on_Arduino_uno. When compile, the board should be "CH572_EVT", and the upload method should be "WCH-ISP". 
+After you create the shell script to install Arduino, run it to install Arduino. Then create a python script that can accept a hex file, run the "reboot.py" to kick CH572 into bootloader, and then upload the script to the CH572 with WCH-ISP (already in Arduino package).
+Test all the script before you end
+```
