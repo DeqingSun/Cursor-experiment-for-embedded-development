@@ -160,3 +160,47 @@ Alternatively, set a hardware breakpoint at 0x3D59C (the lbu a5,70(a3) instructi
 The one minor wrinkle: CFG_ROM_READ = 0xFF is set on this chip (ISP read protection), but on WCH chips this only protects against ISP reads, not WCH-Link debug access. The debug module should still work.
 ```
 
+Then let's do:
+
+```
+Let's do a last effort test. Can you try to see if there is a way to jump to bootloader without reset. Maybe if you just jump there, it will jump back to user code quickly?
+```
+
+## Final experiment: jump directly to bootloader (no reset)
+
+### Hypothesis
+
+If we jump to the bootloader ROM entry (`0x3C000`) from user code *without* triggering a hardware reset, the RWA registers are not cleared by hardware. If `RB_BOOT_LOAD_MAN` (bit 0 of `R8_RST_WDOG_CTRL`) is **combinatorial** — continuously reflecting whether all its conditions are currently met — then the bootloader would read it as `1` and enter DFU mode.
+
+### Safety of jumping to 0x3C000
+
+From the disassembly, the bootloader:
+- Immediately sets its own stack to `0x2003E800` (no conflict with user RAM at `0x20000000`–`0x2003BFFF`)
+- Re-initializes its BSS region (`0x2003DBA0`–`0x2003E014`) fresh each time
+- Is fully idempotent — safe to re-enter without a hardware reset
+
+### Method D (baseline): jump without setting conditions
+
+Added `bootMethodD` to `minimal_ch572.ino` — disables interrupts, then jumps to `0x3C000` with no register changes.
+
+**Result:** Device briefly disconnected, then returned as the user app ~16 ms later. The bootloader ran its DFU window, saw `RB_BOOT_LOAD_MAN=0`, triggered its own software reset, and the user app restarted normally. This confirms the jump mechanism works and the 16 ms window is observable.
+
+### Method C: jump WITH all conditions set
+
+Added `bootMethodC` — sets `WDOG_INT_EN=1`, `ROM_CODE_WE=01b` (`0x40`), `WDOG_COUNT=150` (satisfying `128 ≤ count < 192`) using safe-access writes, then jumps to `0x3C000`.
+
+**Result:** No `0x1A86/0x55E0` DFU device appeared. The device returned as the user app after the same ~16 ms delay.
+
+### Definitive conclusion
+
+**`RB_BOOT_LOAD_MAN` is LATCHED at hardware reset time, not combinatorial.** It is not a live reflection of current register conditions. It is only evaluated — and set — by the hardware at the moment of a *hardware* reset (power-on or external reset pin). A software jump into the bootloader does not re-trigger the evaluation.
+
+Combined with the earlier finding that the hardware clears all RWA registers (including the condition registers) *before* evaluating `RB_BOOT_LOAD_MAN` at a software reset, the complete picture is:
+
+| Scenario | `RB_BOOT_LOAD_MAN` result |
+|---|---|
+| Software reset with conditions set | `0` — hardware cleared RWA registers first, then evaluated |
+| Hardware/power-on reset with conditions set | Would be `1` — but user code never runs before power-on reset |
+| Jump to bootloader with conditions set (no reset) | `0` — latch not re-evaluated without hardware reset |
+
+There is no path from user code to set `RB_BOOT_LOAD_MAN=1`. **The only reliable software-only method to enter USB DFU from user code is `APPJumpBoot` (erase flash page 0 + software reset).**

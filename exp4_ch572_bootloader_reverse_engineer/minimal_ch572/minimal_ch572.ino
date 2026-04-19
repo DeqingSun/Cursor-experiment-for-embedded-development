@@ -37,6 +37,13 @@
  *   a  - DIAGNOSTIC: set conditions + RESET_KEEP=0xAB + reset
  *          (next boot prints if RWA registers survived)
  *   b  - APPJumpBoot: erase flash page 0 + reset (WARNING: destroys user app!)
+ *   c  - JUMP to bootloader ROM (0x3C000) WITH conditions set (no reset!)
+ *          Tests if RB_BOOT_LOAD_MAN is combinatorial vs latched-at-reset.
+ *          If DFU mode appears (0x1A86/0x55E0): bit is live/combinatorial.
+ *          If device returns as user app: bit is latched (cleared at last reset).
+ *   d  - JUMP to bootloader ROM (0x3C000) WITHOUT conditions (baseline).
+ *          Bootloader runs 16ms DFU window, sees RB_BOOT_LOAD_MAN=0,
+ *          triggers its own software reset -> user app comes back.
  *   v  - verify writes work (no reset)
  */
 
@@ -240,6 +247,67 @@ void bootMethodB(void)
     while(1);
 }
 
+/* Method C: Jump to bootloader ROM entry (0x3C000) WITH conditions set.
+ *
+ * NO hardware reset is triggered — the RWA registers (WDOG_INT_EN, ROM_CODE_WE,
+ * WDOG_COUNT) are set here and will still hold those values when the bootloader
+ * reads R8_RST_WDOG_CTRL.
+ *
+ * Key question: is RB_BOOT_LOAD_MAN (bit 0) COMBINATORIAL (reflects the live
+ * state of its conditions) or LATCHED only at hardware-reset time?
+ *
+ *   USB 0x1A86/0x55E0 appears  =>  combinatorial; DFU mode entered.
+ *   Device returns as user app  =>  latched; bootloader saw bit=0 and reset.
+ *
+ * Bootloader sets its own stack to 0x2003E800 — no conflict with user RAM.
+ * Its BSS (0x2003DBA0..0x2003E014) is re-zeroed on entry; safe to re-enter.
+ */
+__attribute__((section(".highcode"), noinline))
+void bootMethodC(void)
+{
+    // Set all conditions for RB_BOOT_LOAD_MAN (no reset, RWA registers persist)
+    safeOr8(&R8_RST_WDOG_CTRL, RB_WDOG_INT_EN);    // WDOG_INT_EN = 1
+    safeOr8(&R8_GLOB_ROM_CFG, 0x40);               // ROM_CODE_WE = 01b
+    // ROM_DATA_WE must be 0 (default, not modifying)
+    R8_WDOG_COUNT = 150;                            // 128 <= 150 < 192
+
+    // Disable interrupts before jumping to avoid spurious IRQs during bootloader init
+    __asm volatile("csrrci zero, mstatus, 8" ::: "memory");
+    __asm volatile("fence.i" ::: "memory");
+
+    // Jump directly to the bootloader ROM entry point — no return
+    __asm volatile(
+        "li t0, 0x3C000\n"
+        "jr t0\n"
+        ::: "t0", "memory"
+    );
+    __builtin_unreachable();
+}
+
+/* Method D: Jump to bootloader ROM entry (0x3C000) WITHOUT setting conditions.
+ *
+ * Baseline test. The bootloader will:
+ *   1. Re-init its stack/BSS
+ *   2. Wait ~16ms for USB DFU activity
+ *   3. See RB_BOOT_LOAD_MAN = 0 (conditions not set)
+ *   4. Trigger its own software reset -> CPU jumps to user flash -> app comes back
+ *
+ * Expect: USB briefly disconnects, then user app re-enumerates (~16ms later).
+ */
+__attribute__((section(".highcode"), noinline))
+void bootMethodD(void)
+{
+    __asm volatile("csrrci zero, mstatus, 8" ::: "memory");
+    __asm volatile("fence.i" ::: "memory");
+
+    __asm volatile(
+        "li t0, 0x3C000\n"
+        "jr t0\n"
+        ::: "t0", "memory"
+    );
+    __builtin_unreachable();
+}
+
 // -------------------------------------------------------------------------
 
 static void printRegs(void)
@@ -303,7 +371,7 @@ static void printRegs(void)
     }
 
     SerialUSB.println("=========================");
-    SerialUSB.println("Cmds: r 1-9 a=diagnostic b=APPJumpBoot(!) v=verify");
+    SerialUSB.println("Cmds: r 1-9 a=diagnostic b=APPJumpBoot(!) c=jump+cond d=jump v=verify");
     SerialUSB.flush();
 }
 
@@ -396,6 +464,24 @@ void loop()
                 SerialUSB.println("   Watch for USB device 0x1A86/0x55E0 on host.");
                 SerialUSB.flush(); delay(200);
                 bootMethodB();
+                break;
+            }
+            case 'c': {
+                SerialUSB.println(">> Method C: JUMP to bootloader ROM 0x3C000 WITH conditions set");
+                SerialUSB.println("   Sets WDOG_INT_EN=1, ROM_CODE_WE=0x40, WDOG_COUNT=150");
+                SerialUSB.println("   Then jumps directly (NO hardware reset).");
+                SerialUSB.println("   If 0x1A86/0x55E0 appears: RB_BOOT_LOAD_MAN is combinatorial!");
+                SerialUSB.println("   If app returns after ~16ms: RB_BOOT_LOAD_MAN is latched/0.");
+                SerialUSB.flush(); delay(200);
+                bootMethodC();
+                break;
+            }
+            case 'd': {
+                SerialUSB.println(">> Method D: JUMP to bootloader ROM 0x3C000, no conditions (baseline)");
+                SerialUSB.println("   Bootloader will wait ~16ms, see RB_BOOT_LOAD_MAN=0,");
+                SerialUSB.println("   trigger its own software reset -> user app comes back.");
+                SerialUSB.flush(); delay(200);
+                bootMethodD();
                 break;
             }
             case 'v': {
