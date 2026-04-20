@@ -43,10 +43,13 @@
 
 /* System info */
 #define R8_CHIP_ID        (*(volatile uint8_t  *)0x40001041)
-#define R8_GLOB_CFG_INFO  (*(volatile uint8_t  *)0x40001045)
-#define  RB_BOOT_LOADER   0x20
-#define R8_RST_WDOG_CTRL  (*(volatile uint8_t  *)0x40001046)
-#define  RB_SOFTWARE_RESET 0x01
+/* R32_GLOBAL_CONFIG @ 0x40001044 — four distinct bytes: */
+#define R8_RESET_STATUS   (*(volatile uint8_t  *)0x40001044)  /* RO, reset source flags */
+#define R8_GLOB_CFG_INFO  (*(volatile uint8_t  *)0x40001045)  /* RO, global config/status */
+#define  RB_BOOT_LOADER   0x20  /* 0=app/SW-reset entry, 1=bootloader/POR entry */
+#define R8_RST_WDOG_CTRL  (*(volatile uint8_t  *)0x40001046)  /* RWA, watchdog/reset ctrl */
+#define  RB_WDOG_RST_EN   0x02  /* enable watchdog reset */
+#define  RB_SOFTWARE_RESET 0x01 /* WA/WZ: write 1 → software reset; reads back 1 briefly */
 
 /* GPIO PA */
 #define R32_PA_PIN        (*(volatile uint32_t *)0x400010A4)
@@ -461,6 +464,106 @@ static void memcpy_helper(uint8_t *dst, const uint8_t *src, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i++)
         dst[i] = src[i];
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  SECTION 9a – do_software_reset  (flash 0x3D570)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * do_software_reset  (inline block @ 0x3D570–0x3D584)
+ *
+ * Triggers an immediate chip-wide software reset via R8_RST_WDOG_CTRL.
+ * Called at the end of a completed ISP session (after flash write+verify).
+ * After the reset the chip re-enters the bootloader; if RB_BOOT_LOADER is
+ * clear in R8_GLOB_CFG_INFO the bootloader can fast-path to user code.
+ *
+ * Disassembly (0x3D570–0x3D584):
+ *   lui  x15,0x40001          ; x15 = 0x40001000
+ *   lbu  x14,70(x15)          ; x14 = R8_RST_WDOG_CTRL  (offset 0x46)
+ *   ori  x14,x14,1            ; x14 |= RB_SOFTWARE_RESET
+ *   sb   x14,70(x15)          ; R8_RST_WDOG_CTRL = x14  → triggers reset
+ *   sb   x0,64(x15)           ; R8_SAFE_ACCESS_SIG = 0  (end safe-access window)
+ *   j    .                    ; spin until chip resets
+ *
+ * Note: The safe-access sequence (0x57, 0xA8 → R8_SAFE_ACCESS_SIG) that
+ * unlocks R8_RST_WDOG_CTRL is done just before this block at 0x3D554–0x3D560.
+ *
+ * IMPORTANT for "jump to bootloader from user code":
+ *   R8_RST_WDOG_CTRL bit 0 (RB_SOFTWARE_RESET) reads back as 1 for a brief
+ *   window immediately after the software reset fires.  The bootloader checks
+ *   this bit at 0x3D6C6 after re-booting:
+ *     bit 0 == 1  →  user code triggered the reset → go straight to usb_init
+ *     bit 0 == 0  →  POR / watchdog reset          → call usb_stable_check first
+ *   This means user application code can force an immediate USB DFU session by:
+ *     R8_SAFE_ACCESS_SIG = 0x57;
+ *     R8_SAFE_ACCESS_SIG = 0xA8;
+ *     R8_RST_WDOG_CTRL |= RB_SOFTWARE_RESET;   // chip resets; bit readable briefly
+ *     while (1) {}                              // wait for reset
+ */
+static __attribute__((noreturn)) void do_software_reset(void)
+{
+    /* safe-access unlock (caller must have already written 0x57, 0xA8) */
+    R8_SAFE_ACCESS_SIG = SAFE_ACCESS_SIG1;
+    R8_SAFE_ACCESS_SIG = SAFE_ACCESS_SIG2;
+
+    uint8_t rst = R8_RST_WDOG_CTRL;   /* read current value (0x3D574) */
+    rst |= RB_SOFTWARE_RESET;          /* set bit 0 (0x3D578) */
+    R8_RST_WDOG_CTRL = rst;            /* write back → reset fires (0x3D57C) */
+    R8_SAFE_ACCESS_SIG = SAFE_ACCESS_SIG0; /* close safe-access window (0x3D580) */
+
+    while (1) {}  /* spin until chip resets (0x3D584: c.j 0x3d584) */
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ *  SECTION 9b – usb_stable_check  (flash 0x3D1F0)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * usb_stable_check  (flash 0x3D1F0)
+ *
+ * Checks whether USB is stably connected (D+ continuously high) over
+ * 100 consecutive polls.  If stable, tail-calls usb_init.  Otherwise returns.
+ *
+ * Called from the session-restart path when R8_RST_WDOG_CTRL bit 0 == 0
+ * (i.e. the reset was NOT a software-reset triggered by user code; it was a
+ *  POR or watchdog reset and we must confirm USB is really there).
+ *
+ * Disassembly (0x3D1F0–0x3D254):
+ *   Read R32_PA_DIR (0x400010A0), clear bits [1:0] (PA0/PA1 as input – D±)
+ *   Read R32_PA_OUT_H (0x400010B4), set bit 1 (enable pull-up on PA1?)
+ *   call is_usb_connected(); if not present → return
+ *   loop up to 100 ×:
+ *       call is_usb_connected()
+ *       if present: loop-counter++
+ *       else:       inner-stable-loop (check if D- stays low)
+ *   if loop_count reached 100: tail-call usb_init (0x3D102)
+ *   else: return (no stable USB → caller continues without USB)
+ */
+static void usb_stable_check(void)
+{
+    /* disable drive on PA0/PA1 (D±): set as high-impedance input */
+    R32_PA_DIR = R32_PA_DIR & ~3u;           /* 0x3D1F4 */
+    /* enable pull-up or out on PA1 (D+) for detection */
+    *(volatile uint32_t *)0x400010B4 |= 2u;  /* 0x3D20E */
+
+    if (!is_usb_connected()) return;  /* not even initially present */
+
+    int count = 0;
+    for (int i = 0; i < 100; i++) {
+        if (is_usb_connected()) {
+            count++;
+        } else {
+            /* D+ dropped — check if D- is now also low (SE0 = disconnected) */
+            /* inner loop waits for stable low then returns */
+            return;
+        }
+    }
+    /* 100 consecutive connected polls — USB is stably present, start it */
+    /* tail-call usb_init (0x3D102) */
+    usb_init();
 }
 
 
@@ -1016,8 +1119,47 @@ int main(void)
             /* Poll timer for ISP timeout */
             if (R8_TMR_INT_FLAG & RB_TMR_IF_CYC_END)
             {
-                /* handle baud-rate change request */
-                /* handle session timeout → jump to user code */
+                /* handle baud-rate change request (update R16_UART_DL) */
+            }
+
+            /* ── Session-end / restart path (0x3D5B8, 0x3D6BC) ───────────
+             *
+             * When the ISP session completes (all flash pages written &
+             * verified), the bootloader:
+             *  1. Calls FLASH_EEPROM_CMD(CMD_FLASH_ROM_PWR_DOWN) to idle
+             *     the flash engine.
+             *  2. Verifies the written data (reads back 4 × 32-bit words
+             *     from x21+{0,4,8,12}; if any != 0xFFFFFFFF the session is
+             *     considered incomplete and the main loop continues).
+             *  3. If verification passes AND the current mode is USB:
+             *       Calls usb_init() to reset the USB peripheral.
+             *       Restores USB DMA address and EP2 control registers.
+             *  4. If no active ISP session flag (x18 == 0) at 0x3D41C:
+             *       Jumps to the software-reset path: disables USB pin mux
+             *       (R16_PIN_ALTERNATE_H = 0 at 0x3D540), resets flash,
+             *       then SAFE-ACCESS → R8_RST_WDOG_CTRL |= RB_SOFTWARE_RESET
+             *       → infinite spin (0x3D570–0x3D584). Chip reboots.
+             *
+             * ── After software reset: R8_RST_WDOG_CTRL bit-0 check ────────
+             * On the next boot the bootloader reaches 0x3D6BC (or 0x3D59C):
+             *
+             *   (0x3D6BC)  lbu  x15, 0(x19)          // usb_mode_flag
+             *              bnez x15, main_loop         // already in USB → loop
+             *              lui  x15, 0x40001
+             *   (0x3D6C6)  lbu  x15, 70(x15)          // READ R8_RST_WDOG_CTRL
+             *   (0x3D6CA)  andi x15, x15, 1            // isolate bit 0
+             *   (0x3D6CC)  beqz x15, 0x3D6D8           // bit 0 == 0 → stable check
+             *   (0x3D6CE)  call usb_init               // bit 0 == 1 → go direct to USB
+             *   (0x3D6D8)  call usb_stable_check        // bit 0 == 0 → confirm USB first
+             */
+            uint8_t rst = R8_RST_WDOG_CTRL;   /* 0x3D6C6 – copy to variable */
+            if (rst & RB_SOFTWARE_RESET) {     /* 0x3D6CA – check lowest bit */
+                /* Software reset was user-triggered: skip stable-detection,
+                 * go straight to USB ISP mode. */
+                usb_init();
+            } else {
+                /* POR / watchdog reset: confirm USB is stably present. */
+                usb_stable_check();  /* calls usb_init internally if stable */
             }
         }
     }
@@ -1030,7 +1172,16 @@ int main(void)
             uart_isp_task();
     }
 
-    /* Never reached normally.  Boot-to-user-code path: */
-    /* set MEPC = 0x00000000, mret */
+    /*
+     * The bootloader does NOT contain a direct MRET-to-user-code path in
+     * main().  The only mret in the image is in _startup (0x3C0BA) which
+     * jumps to main in RAM.  When the ISP session ends, the bootloader
+     * triggers a software reset (do_software_reset) and the chip re-runs
+     * the bootloader.  On the re-boot, if RB_BOOT_LOADER in R8_GLOB_CFG_INFO
+     * reads 0 (application-reset entry), the bootloader is expected to
+     * quickly pass through to user code — but the exact "short-circuit to
+     * user code" branch was not found in the 8 KB image; it may reside in
+     * the INFO-area ROM stub called via FLASH_EEPROM_CMD.
+     */
     return 0;
 }

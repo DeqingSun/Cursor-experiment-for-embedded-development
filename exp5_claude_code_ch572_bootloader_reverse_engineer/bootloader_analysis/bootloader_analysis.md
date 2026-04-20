@@ -234,24 +234,56 @@ Host                          Device
 
 ## 8. Jump-to-User-Code Mechanism
 
-After ISP_END (0xA8), the bootloader performs:
+### What the bootloader actually does at session end (0x3D554–0x3D584)
+
+The bootloader does **not** contain a `mret`-to-user-code path in `main()`. The only `mret` in the 8 KB image is in `_startup` (0x3C0BA), which jumps to `main` in RAM. When an ISP session completes, the session-end block:
+
+1. Clears the USB pin-mux (`R16_PIN_ALTERNATE_H = 0` at 0x3D540).
+2. Resets the flash controller (`FLASH_EEPROM_CMD(CMD_FLASH_ROM_SW_RESET)`).
+3. Performs safe-access then **software reset** via `R8_RST_WDOG_CTRL |= RB_SOFTWARE_RESET`.
+4. Spins in an infinite loop until the chip reboots.
 
 ```c
-// Disable peripherals
-R8_USB_CTRL = 0;        // disable USB
-R8_UART_IER = 0;        // disable UART interrupt
-
-// Jump to user code reset vector
-asm volatile(
-    "csrw mepc, x0\n"   // MEPC = 0x00000000
-    "mret\n"            // CPU fetches from flash addr 0
-);
+// Actual session-end sequence (0x3D554–0x3D584):
+R8_SAFE_ACCESS_SIG = 0x57;
+R8_SAFE_ACCESS_SIG = 0xA8;
+uint8_t rst = R8_RST_WDOG_CTRL;   // READ R8_RST_WDOG_CTRL into variable
+rst |= RB_SOFTWARE_RESET;          // set bit 0
+R8_RST_WDOG_CTRL = rst;            // WRITE BACK → chip resets
+R8_SAFE_ACCESS_SIG = 0x00;
+while (1) {}                        // wait for reset
 ```
 
-**Implication for user code**: To trigger the bootloader from user code without a physical reset, you need to either:
-1. Re-enter via software reset (write watchdog or `R8_RST_WDOG_CTRL`).
-2. Call the bootloader entry point directly — but the exact re-entrant entry address is not confirmed; use `0x3C000` (reset vector) or look for a documented IAP trampoline.
-3. Use the `reboot.py` tool (1200-baud DTR trigger via ch55xRebootTool hardware) which electrically resets the CH572 and lets it re-run the bootloader from cold boot.
+### R8_RST_WDOG_CTRL bit-0 check on re-boot (0x3D6C6, 0x3D59C)
+
+After the software reset the chip re-runs the bootloader. In the session-restart path the bootloader reads `R8_RST_WDOG_CTRL` and checks bit 0:
+
+```asm
+; 0x3D6C6
+lui  x15, 0x40001
+lbu  x15, 70(x15)    ; READ R8_RST_WDOG_CTRL → local variable
+andi x15, x15, 1     ; isolate bit 0 (RB_SOFTWARE_RESET)
+beqz x15, stable     ; bit 0 == 0 → call usb_stable_check (100-poll loop)
+call usb_init        ; bit 0 == 1 → skip stable check, init USB immediately
+```
+
+`RB_SOFTWARE_RESET` (bit 0) is documented as "WA/WZ" — write with safe-access, auto-clears after the reset is serviced. The bootloader relies on the fact that this bit is still readable as 1 briefly after the software reset fires. This distinguishes a **user-triggered reset** (bit 0 = 1 → go straight to USB DFU) from a **POR or watchdog reset** (bit 0 = 0 → run `usb_stable_check` first).
+
+### How to enter the bootloader USB DFU from user code
+
+```c
+// From user application code — triggers immediate USB DFU on next boot:
+R8_SAFE_ACCESS_SIG = 0x57;          // safe-access unlock step 1
+R8_SAFE_ACCESS_SIG = 0xA8;          // safe-access unlock step 2
+R8_RST_WDOG_CTRL  |= RB_SOFTWARE_RESET;  // 0x3D57C pattern — chip resets
+while (1) {}                         // spin; never returns
+// On re-boot the bootloader sees RB_SOFTWARE_RESET bit still set,
+// skips the USB-stable-detection delay, and goes directly to usb_init().
+```
+
+This is the mechanism sought by this project: jump from user code to bootloader USB DFU **without erasing sector 0**.
+
+The `reboot.py` / ch55xRebootTool hardware path uses an electrical reset (DTR on USB-serial) which is equivalent to a POR, so the bootloader takes the `usb_stable_check` path instead.
 
 ---
 
