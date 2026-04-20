@@ -254,36 +254,63 @@ R8_SAFE_ACCESS_SIG = 0x00;
 while (1) {}                        // wait for reset
 ```
 
-### R8_RST_WDOG_CTRL bit-0 check on re-boot (0x3D6C6, 0x3D59C)
+### R8_RST_WDOG_CTRL bit 0 — read/write asymmetry (critical)
 
-After the software reset the chip re-runs the bootloader. In the session-restart path the bootloader reads `R8_RST_WDOG_CTRL` and checks bit 0:
+Bit 0 of `R8_RST_WDOG_CTRL` (0x40001046) has **different meanings for read vs. write**:
+
+| Direction | Bit name | Description |
+|-----------|----------|-------------|
+| **Read**  | `RB_BOOT_LOAD_MAN` (RO) | 1 = chip entered bootloader via hardware manual-boot trigger |
+| **Write** | `RB_SOFTWARE_RESET` (WA/WZ) | 1 = execute immediate software reset |
+
+### RB_BOOT_LOAD_MAN check on boot (0x3D6C6, 0x3D59C)
+
+Early in the boot sequence the bootloader reads `R8_RST_WDOG_CTRL` and checks the `RB_BOOT_LOAD_MAN` flag:
 
 ```asm
 ; 0x3D6C6
 lui  x15, 0x40001
-lbu  x15, 70(x15)    ; READ R8_RST_WDOG_CTRL → local variable
-andi x15, x15, 1     ; isolate bit 0 (RB_SOFTWARE_RESET)
-beqz x15, stable     ; bit 0 == 0 → call usb_stable_check (100-poll loop)
-call usb_init        ; bit 0 == 1 → skip stable check, init USB immediately
+lbu  x15, 70(x15)    ; READ R8_RST_WDOG_CTRL into local variable
+andi x15, x15, 1     ; isolate bit 0 = RB_BOOT_LOAD_MAN
+beqz x15, stable     ; 0 → call usb_stable_check (100-poll loop)
+call usb_init        ; 1 → manual-boot entry, init USB immediately → DFU
 ```
 
-`RB_SOFTWARE_RESET` (bit 0) is documented as "WA/WZ" — write with safe-access, auto-clears after the reset is serviced. The bootloader relies on the fact that this bit is still readable as 1 briefly after the software reset fires. This distinguishes a **user-triggered reset** (bit 0 = 1 → go straight to USB DFU) from a **POR or watchdog reset** (bit 0 = 0 → run `usb_stable_check` first).
+`RB_BOOT_LOAD_MAN = 1` is set by hardware — it is NOT settable by directly writing bit 0 (writing bit 0 triggers a reset instead). The hardware sets it **only when all of these conditions are met at boot time**:
 
-### How to enter the bootloader USB DFU from user code
+| Condition | Register | Description |
+|-----------|----------|-------------|
+| `RB_WDOG_INT_EN = 1` | `R8_RST_WDOG_CTRL` bit 2 | Watchdog interrupt enabled |
+| `RB_ROM_CODE_WE = 1` | `R8_RESET_STATUS` bits[7:6] | Flash code area write-enable |
+| `RB_ROM_DATA_WE = 0` | (datasheet only, not in SFR header) | Flash data area write-protect |
+| `128 ≤ R8_WDOG_COUNT < 192` | `R8_WDOG_COUNT` (0x40001043) | Watchdog count in range [0x80, 0xBF] |
+
+When these conditions hold the chip boots into bootloader mode **and** `RB_BOOT_LOAD_MAN = 1`.
+
+### How to enter USB DFU from user code
 
 ```c
-// From user application code — triggers immediate USB DFU on next boot:
-R8_SAFE_ACCESS_SIG = 0x57;          // safe-access unlock step 1
-R8_SAFE_ACCESS_SIG = 0xA8;          // safe-access unlock step 2
-R8_RST_WDOG_CTRL  |= RB_SOFTWARE_RESET;  // 0x3D57C pattern — chip resets
-while (1) {}                         // spin; never returns
-// On re-boot the bootloader sees RB_SOFTWARE_RESET bit still set,
-// skips the USB-stable-detection delay, and goes directly to usb_init().
+// Step 1: configure the manual-boot hardware conditions (needs safe-access)
+R8_SAFE_ACCESS_SIG = 0x57;
+R8_SAFE_ACCESS_SIG = 0xA8;
+R8_WDOG_COUNT     = 0x80;                    // set count to 128 (in [128,191])
+R8_RST_WDOG_CTRL |= RB_WDOG_INT_EN;         // bit 2: enable watchdog interrupt
+// also ensure RB_ROM_CODE_WE=1 in R8_RESET_STATUS and RB_ROM_DATA_WE=0
+R8_SAFE_ACCESS_SIG = 0x00;
+
+// Step 2: trigger software reset to re-enter the bootloader
+R8_SAFE_ACCESS_SIG = 0x57;
+R8_SAFE_ACCESS_SIG = 0xA8;
+R8_RST_WDOG_CTRL  |= RB_SOFTWARE_RESET;     // write bit 0 = reset (not the same as read bit 0)
+while (1) {}                                  // spin until chip resets
+
+// On next boot: hardware sees conditions met → sets RB_BOOT_LOAD_MAN=1
+// Bootloader reads RB_BOOT_LOAD_MAN=1 at 0x3D6C6 → calls usb_init() → DFU
 ```
 
-This is the mechanism sought by this project: jump from user code to bootloader USB DFU **without erasing sector 0**.
+**Important**: writing `RB_SOFTWARE_RESET` (bit 0) does NOT set `RB_BOOT_LOAD_MAN`. The watchdog + ROM-WE conditions must be in place for that. A plain software reset without those conditions gives `RB_BOOT_LOAD_MAN = 0`, so the bootloader takes the slower `usb_stable_check` path.
 
-The `reboot.py` / ch55xRebootTool hardware path uses an electrical reset (DTR on USB-serial) which is equivalent to a POR, so the bootloader takes the `usb_stable_check` path instead.
+The `reboot.py` / ch55xRebootTool path uses an electrical reset (equivalent to POR), so `RB_BOOT_LOAD_MAN = 0` and USB detection goes via `usb_stable_check`.
 
 ---
 

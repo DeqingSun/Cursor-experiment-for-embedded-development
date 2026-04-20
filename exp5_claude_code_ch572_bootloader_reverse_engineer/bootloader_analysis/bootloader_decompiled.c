@@ -47,9 +47,19 @@
 #define R8_RESET_STATUS   (*(volatile uint8_t  *)0x40001044)  /* RO, reset source flags */
 #define R8_GLOB_CFG_INFO  (*(volatile uint8_t  *)0x40001045)  /* RO, global config/status */
 #define  RB_BOOT_LOADER   0x20  /* 0=app/SW-reset entry, 1=bootloader/POR entry */
-#define R8_RST_WDOG_CTRL  (*(volatile uint8_t  *)0x40001046)  /* RWA, watchdog/reset ctrl */
-#define  RB_WDOG_RST_EN   0x02  /* enable watchdog reset */
-#define  RB_SOFTWARE_RESET 0x01 /* WA/WZ: write 1 → software reset; reads back 1 briefly */
+/* R8_RST_WDOG_CTRL — bit 0 has DIFFERENT meaning for read vs. write:
+ *   READ  bit 0 = RB_BOOT_LOAD_MAN (RO): 1 = chip entered bootloader via
+ *                 hardware manual-boot trigger (watchdog + ROM-WE conditions).
+ *                 Set by hardware when ALL of: RB_WDOG_INT_EN=1,
+ *                 RB_ROM_CODE_WE=1, RB_ROM_DATA_WE=0, 128≤R8_WDOG_COUNT<192.
+ *   WRITE bit 0 = RB_SOFTWARE_RESET (WA/WZ): writing 1 triggers system reset.
+ */
+#define R8_RST_WDOG_CTRL   (*(volatile uint8_t  *)0x40001046)
+#define  RB_BOOT_LOAD_MAN  0x01  /* RO (read): manual boot-loader entry flag */
+#define  RB_SOFTWARE_RESET 0x01  /* WA/WZ (write): execute software reset */
+#define  RB_WDOG_RST_EN    0x02  /* RWA: watchdog overflow triggers reset */
+/* R8_WDOG_COUNT at 0x40001043 — must be in [128,191] for manual-boot condition */
+#define R8_WDOG_COUNT      (*(volatile uint8_t  *)0x40001043)
 
 /* GPIO PA */
 #define R32_PA_PIN        (*(volatile uint32_t *)0x400010A4)
@@ -490,17 +500,14 @@ static void memcpy_helper(uint8_t *dst, const uint8_t *src, uint32_t len)
  * Note: The safe-access sequence (0x57, 0xA8 → R8_SAFE_ACCESS_SIG) that
  * unlocks R8_RST_WDOG_CTRL is done just before this block at 0x3D554–0x3D560.
  *
- * IMPORTANT for "jump to bootloader from user code":
- *   R8_RST_WDOG_CTRL bit 0 (RB_SOFTWARE_RESET) reads back as 1 for a brief
- *   window immediately after the software reset fires.  The bootloader checks
- *   this bit at 0x3D6C6 after re-booting:
- *     bit 0 == 1  →  user code triggered the reset → go straight to usb_init
- *     bit 0 == 0  →  POR / watchdog reset          → call usb_stable_check first
- *   This means user application code can force an immediate USB DFU session by:
- *     R8_SAFE_ACCESS_SIG = 0x57;
- *     R8_SAFE_ACCESS_SIG = 0xA8;
- *     R8_RST_WDOG_CTRL |= RB_SOFTWARE_RESET;   // chip resets; bit readable briefly
- *     while (1) {}                              // wait for reset
+ * IMPORTANT — bit 0 is read/write asymmetric:
+ *   WRITE bit 0 = RB_SOFTWARE_RESET: triggers chip reset (this function).
+ *   READ  bit 0 = RB_BOOT_LOAD_MAN: set by hardware when the manual-boot
+ *                 condition was satisfied (see usb_stable_check comment).
+ *
+ * The bootloader checks READ bit 0 (RB_BOOT_LOAD_MAN) at 0x3D6C6 on re-boot:
+ *   bit 0 == 1  →  hardware manual-boot entry → go straight to usb_init
+ *   bit 0 == 0  →  normal POR/watchdog reset  → call usb_stable_check first
  */
 static __attribute__((noreturn)) void do_software_reset(void)
 {
@@ -1152,13 +1159,14 @@ int main(void)
              *   (0x3D6CE)  call usb_init               // bit 0 == 1 → go direct to USB
              *   (0x3D6D8)  call usb_stable_check        // bit 0 == 0 → confirm USB first
              */
+            /* READ bit 0 = RB_BOOT_LOAD_MAN (hardware manual-boot flag) */
             uint8_t rst = R8_RST_WDOG_CTRL;   /* 0x3D6C6 – copy to variable */
-            if (rst & RB_SOFTWARE_RESET) {     /* 0x3D6CA – check lowest bit */
-                /* Software reset was user-triggered: skip stable-detection,
-                 * go straight to USB ISP mode. */
+            if (rst & RB_BOOT_LOAD_MAN) {      /* 0x3D6CA – check lowest bit */
+                /* Hardware manual-boot condition was satisfied (watchdog +
+                 * ROM-WE config): skip stable-detection, start USB DFU now. */
                 usb_init();
             } else {
-                /* POR / watchdog reset: confirm USB is stably present. */
+                /* Normal POR / watchdog reset: confirm USB stably present. */
                 usb_stable_check();  /* calls usb_init internally if stable */
             }
         }
