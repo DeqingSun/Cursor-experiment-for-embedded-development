@@ -8,7 +8,7 @@ TOOLBIN ?= $(ARDUINO_PACKAGES)/WCH/tools/riscv-none-embed-gcc/ide_2.2.0_trimmed/
 WCHISP_ROOT ?= $(ARDUINO_PACKAGES)/WCH/tools/wchisp
 WCHISP ?= $(lastword $(sort $(wildcard $(WCHISP_ROOT)/*/wchisp)))
 # Optional: pulse ch55xRebootTool so the chip enters USB ISP (same as upload_hex_ch572.py).
-REBOOT_SCRIPT ?= ../reference/reboot.py
+REBOOT_SCRIPT ?= reboot.py
 
 PREFIX := $(TOOLBIN)/riscv-wch-elf-
 CC      := $(PREFIX)gcc
