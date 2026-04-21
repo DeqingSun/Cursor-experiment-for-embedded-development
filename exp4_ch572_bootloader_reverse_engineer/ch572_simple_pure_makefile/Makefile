@@ -24,8 +24,9 @@ TARGET := ch572_pa11_blink
 BUILD  := build
 
 ARCHFLAGS := -march=rv32imc_zba_zbb_zbc_zbs_xw -mabi=ilp32 --param=highcode-gen-section-name=1
+# -g3 keeps line tables under -Os so objdump -S -l can interleave source in .lst.
 COMMON    := $(ARCHFLAGS) -msmall-data-limit=8 -msave-restore -fmessage-length=0 -fsigned-char \
-             -ffunction-sections -fdata-sections -fno-common -Os -DNDEBUG
+             -ffunction-sections -fdata-sections -fno-common -Os -g3 -DNDEBUG
 
 CPPFLAGS := -DCH572 -DARDUINO_ARCH_CH32
 
@@ -55,7 +56,7 @@ $(BUILD)/$(TARGET).bin: $(BUILD)/$(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
 $(BUILD)/$(TARGET).lst: $(BUILD)/$(TARGET).elf
-	$(OBJDUMP) -xdS $< > $@
+	$(OBJDUMP) -xdSCl $< > $@
 
 $(BUILD)/main.cpp.o: main.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
