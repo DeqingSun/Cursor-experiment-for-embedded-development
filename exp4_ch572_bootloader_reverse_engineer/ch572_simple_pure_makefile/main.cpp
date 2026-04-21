@@ -5,33 +5,34 @@
  /* openocd must be run during blinking
   ../arduino_cli/data/packages/WCH/tools/openocd/ide_2.3.0_trimmed_packed/OpenOCD/OpenOCD/bin/openocd -f ../arduino_cli/data/packages/WCH/tools/openocd/ide_2.3.0_trimmed_packed/OpenOCD/OpenOCD/bin/wch-riscv.cfg
  */
- #include <stdint.h>
+#include <stdint.h>
 
- static void jump_isprom_strip()
- {
-     /* Word copy like WCH FLASH_ROM_READ: flash ROM reads are naturally 32-bit. */
-     volatile uint32_t *dst = (volatile uint32_t *)0x20000000;
-     const uint32_t *src = (const uint32_t *)(0x0003c000 + 0xc0);
-     const uint32_t words = 0x2000u >> 2;
-     for (uint32_t i = 0; i < words; ++i) {
-         dst[i] = src[i];
-     }
- 
-     *(int32_t*)(0x20000100 + 0xc) = 0x00014505; // nop \n li a0,1, patch PA1 detection
-     
-     volatile uint32_t *clr = (volatile uint32_t *)0x20001ba0;
-     for (uint32_t i = 0; i < (0x0474u >> 2); ++i) {
-         clr[i] = 0;
-     }
- 
-     asm( "la gp, 0x20002398\n"
-          ".option arch, +zicsr\n"
-          "li t0, 0x20001196\n"
-          "jr t0\n");
+static void jump_isprom_strip()
+{
+    if (*((const uint32_t *)(0x0003c000 + 0xc0 + 0x10c)) == 0x00153513) { //    ram:0003c1cc 13 35 15 00     sltiu      a0,a0,0x1
+        /* Word copy like WCH FLASH_ROM_READ: flash ROM reads are naturally 32-bit. */
+        volatile uint32_t *dst = (volatile uint32_t *)0x20000000;
+        const uint32_t *src = (const uint32_t *)(0x0003c000 + 0xc0);
+        const uint32_t words = 0x2000u >> 2;
+        for (uint32_t i = 0; i < words; ++i) {
+            dst[i] = src[i];
+        }
+
+        *(int32_t*)(0x20000100 + 0xc) = 0x00014505; // nop \n li a0,1, patch PA1 detection
+        
+        volatile uint32_t *clr = (volatile uint32_t *)0x20001ba0;
+        for (uint32_t i = 0; i < (0x0474u >> 2); ++i) {
+            clr[i] = 0;
+        }
+
+        asm( "la gp, 0x20002398\n"
+            ".option arch, +zicsr\n"
+            "li t0, 0x20001196\n"
+            "jr t0\n");
         //   "csrw mepc, t0\n" // __set_MEPC is not available here
         //   "mret\n");
- 
- }
+    }
+}
 
 static void delay_cycles(volatile unsigned long n)
 {
