@@ -1,8 +1,7 @@
-# Minimal CH572 blink (PA11) using the same Link.ld and startup_CH572.S as the
-# WCH Arduino CH32V core. Defaults use the portable packages tree next to this
-# experiment's arduino_cli (see ../arduino_cli in exp4).
+# Minimal CH572 blink (PA11). Link.ld and startup_CH572.S live in this folder
+# (vendored from WCH CH32V Arduino core). Toolchain and wchisp still come from
+# ../arduino_cli/data/packages by default.
 ARDUINO_PACKAGES ?= ../arduino_cli/data/packages
-WCH_PKG ?= $(ARDUINO_PACKAGES)/WCH/hardware/ch32v/26.2.6
 TOOLBIN ?= $(ARDUINO_PACKAGES)/WCH/tools/riscv-none-embed-gcc/ide_2.2.0_trimmed/bin
 
 # wchisp from the same Arduino package tree (lexicographically last version folder).
@@ -18,9 +17,8 @@ OBJCOPY := $(PREFIX)objcopy
 OBJDUMP := $(PREFIX)objdump
 SIZE    := $(PREFIX)size
 
-LDSCRIPT := $(WCH_PKG)/system/CH572/SRC/Ld/Link.ld
-STARTUP  := $(WCH_PKG)/system/CH572/SRC/Startup/startup_CH572.S
-ISP_LIB  := $(WCH_PKG)/system/CH572/SRC/StdPeriphDriver/libISP572.a
+LDSCRIPT := Link.ld
+STARTUP  := startup_CH572.S
 
 TARGET := ch572_pa11_blink
 BUILD  := build
@@ -39,7 +37,7 @@ LDFLAGS := $(ARCHFLAGS) -T $(LDSCRIPT) -nostartfiles -Wl,--gc-sections \
            -Wl,-Map=$(BUILD)/$(TARGET).map \
            -Wl,--defsym=__FLASH_SIZE=245760 -Wl,--defsym=__RAM_SIZE=12288 \
            --specs=nano.specs --specs=nosys.specs \
-           -Wl,--start-group $(BUILD)/main.cpp.o $(BUILD)/startup_CH572.o $(ISP_LIB) -lc -Wl,--end-group
+           -Wl,--start-group $(BUILD)/main.cpp.o $(BUILD)/startup_CH572.o -lc -Wl,--end-group
 
 .PHONY: all clean flash
 
