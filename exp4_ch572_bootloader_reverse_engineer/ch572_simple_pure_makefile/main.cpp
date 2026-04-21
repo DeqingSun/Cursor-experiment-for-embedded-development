@@ -1,6 +1,10 @@
 /* CH572: blink PA11. Single translation unit, no #include (registers + delay only).
  * PA11 digital GPIO, push-pull output (matches GPIOA_ModeCfg GPIO_ModeOut_PP_5mA).
  */
+
+ /* openocd must be run during blinking
+  ../arduino_cli/data/packages/WCH/tools/openocd/ide_2.3.0_trimmed_packed/OpenOCD/OpenOCD/bin/openocd -f ../arduino_cli/data/packages/WCH/tools/openocd/ide_2.3.0_trimmed_packed/OpenOCD/OpenOCD/bin/wch-riscv.cfg
+ */
  #include <stdint.h>
 
  static void jump_isprom_strip()
