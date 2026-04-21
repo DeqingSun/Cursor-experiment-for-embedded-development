@@ -13,6 +13,7 @@ REBOOT_SCRIPT ?= reboot.py
 PREFIX := $(TOOLBIN)/riscv-wch-elf-
 CC      := $(PREFIX)gcc
 CXX     := $(PREFIX)g++
+GDB     := $(PREFIX)gdb
 OBJCOPY := $(PREFIX)objcopy
 OBJDUMP := $(PREFIX)objdump
 SIZE    := $(PREFIX)size
@@ -40,7 +41,7 @@ LDFLAGS := $(ARCHFLAGS) -T $(LDSCRIPT) -nostartfiles -Wl,--gc-sections \
            --specs=nano.specs --specs=nosys.specs \
            -Wl,--start-group $(BUILD)/main.cpp.o $(BUILD)/startup_CH572.o -lc -Wl,--end-group
 
-.PHONY: all clean flash
+.PHONY: all clean flash dump-ram-8k
 
 # MAP is written by the same link line as ELF (see -Wl,-Map=...); it is not a separate rule.
 all: $(BUILD)/$(TARGET).elf $(BUILD)/$(TARGET).hex $(BUILD)/$(TARGET).lst
@@ -69,6 +70,10 @@ $(BUILD):
 
 clean:
 	rm -rf $(BUILD)
+
+# Requires OpenOCD already running (GDB port 3333). Sets breakpoint at main.cpp:18, then writes 8 KiB from 0x20000000.
+dump-ram-8k: $(BUILD)/$(TARGET).elf
+	GDB="$(GDB)" ./dump_ram_8k_gdb.sh
 
 flash: $(BUILD)/$(TARGET).hex
 	@if [ ! -f "$(WCHISP)" ]; then \
