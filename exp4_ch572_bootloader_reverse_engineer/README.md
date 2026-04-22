@@ -10,6 +10,12 @@ However, in the testing process, I found [a commit](https://github.com/cnlohr/ch
 
 ------
 
+## Hardware setup
+
+The test setup is a regular CH572 board connected to computer with USB cable. The USB cable is connected through a [reboot tool](https://github.com/DeqingSun/ch55xduino/tree/ch55xduino/pcb/ch55xRebootTool). The reboot tool can power cycle the CH572 board and pull up D+ to kick target into bootloader mode, so we do not need to manually do anything during the test.
+
+![test setup](imgs/test_hardware.jpg)
+
 ## Reverse engineer bootloader to check code logic
 
 OK, we got LED blinking, and now let's do something real. Just like this Abstruse Goose comic. ([Archive since original website is down](https://github.com/s-macke/Abstruse-Goose-Archive/blob/master/comics/474.md))
