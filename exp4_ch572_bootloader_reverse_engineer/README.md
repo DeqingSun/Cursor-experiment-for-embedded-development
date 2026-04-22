@@ -2,7 +2,13 @@
 
 ## Conclusion
 
-The goal might be unachievable. However, this experiment shows strength and weakness of Cursor agent. The Agent can "Think", "Code" and "Test" as long as the hardware setup allow computer to access necessary hardware read and write. And this does lead to some great finding. However, due to the limit of context, the agent will forget important finding from previous iterations. Maybe I did not set it up properly.
+The orginal goal to use register to invoke bootloader is proven to be unachievable. However, this experiment shows strength and weakness of Cursor agent. The Agent can "Think", "Code" and "Test" as long as the hardware setup allow computer to access necessary hardware read and write. And this does lead to some great finding. However, due to the limit of context, the agent may forget important finding from previous iterations. Proper documentation is necessary.
+
+However, in the testing process, I found [a commit](https://github.com/cnlohr/ch32fun/commit/db87b2d3ec77570f0b7d04e3f6968d079bac8c2e) and it did the work. The agent did a good job helping me interactively to find bug and limitations. And I got the [code](https://github.com/DeqingSun/arduino_core_ch32/commit/44e59b80e5968a26def0ebfde0164d2dfb2bf9af) that does the job. 
+
+------
+
+------
 
 ## Reverse engineer bootloader to check code logic
 
@@ -228,3 +234,12 @@ There is no path from user code to set `RB_BOOT_LOAD_MAN=1`. **The only reliable
 
 </details>
 
+Overall, the agent did a good job to test the idea and confirm this approach is not possible.
+
+## Try feature from [ch32fun](https://github.com/cnlohr/ch32fun)
+
+In ch32fun, [biemster](https://github.com/cnlohr/ch32fun/commit/db87b2d3ec77570f0b7d04e3f6968d079bac8c2e) contributed a way to jump to bootloader, by copying the bootloader into RAM, patch it and then jump into it.
+
+I did not rely heavily on agent since troubleshooting requires frequent change of tools. But overall the agent gave me valuable suggestions about permission and gdb usages.
+
+In the end I got the code working! Now the [code](https://github.com/DeqingSun/arduino_core_ch32/commit/44e59b80e5968a26def0ebfde0164d2dfb2bf9af) is a part of CH572 Arduino USB Serial code.
