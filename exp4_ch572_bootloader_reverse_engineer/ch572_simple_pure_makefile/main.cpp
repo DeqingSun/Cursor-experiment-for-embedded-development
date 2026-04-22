@@ -4,10 +4,14 @@
 
  /* openocd must be run during blinking
   ../arduino_cli/data/packages/WCH/tools/openocd/ide_2.3.0_trimmed_packed/OpenOCD/OpenOCD/bin/openocd -f ../arduino_cli/data/packages/WCH/tools/openocd/ide_2.3.0_trimmed_packed/OpenOCD/OpenOCD/bin/wch-riscv.cfg
- */
+  
+  ../arduino_cli/data/packages/WCH/tools/riscv-none-embed-gcc/ide_2.2.0_trimmed/bin/riscv-wch-elf-gdb build/ch572_pa11_blink.elf
+  target remote localhost:3333
+  
+*/
 #include <stdint.h>
 
-static void jump_isprom_strip()
+__attribute__((noinline, used)) static void jump_isprom_strip()
 {
     if (*((const uint32_t *)(0x0003c000 + 0xc0 + 0x10c)) == 0x00153513) { //    ram:0003c1cc 13 35 15 00     sltiu      a0,a0,0x1
         /* Word copy like WCH FLASH_ROM_READ: flash ROM reads are naturally 32-bit. */

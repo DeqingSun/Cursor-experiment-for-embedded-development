@@ -52,7 +52,10 @@ The ultimate goal is, you write a sketch, it can run on the CH572, set correct r
 The hardware setup is ready and tested. You just code, upload and test by yourself over and over again until you reach the ultimate goal. 
 ```
 
-after 50 mins with 15M token used, I got:
+after 50 mins with 15M token used, agent confirms registers can not keep after reset, RB_BOOT_LOAD_MAN keeps 0:
+
+<details>
+<summary>Response from Agent</summary>
 
 ## Experimental Results
 
@@ -101,13 +104,19 @@ triggering `APPJumpBoot` (Method B in `minimal_ch572.ino`).
 
 The downside is that it destroys the user application and requires re-flashing via wchisp afterwards.
 
-Then let's do:
+</details>
+
+Then let's ask the agent to see if the bootloader binary is checking those registers in the booting process:
 
 ```
 Thank you for your hard work. I know you have evidence that s_RST_WDOG_CTRL = 0x00 s_GLOB_ROM_CFG = 0x00 after reset in APP level. Can you go back to decompiled bootloader to check if the bootloader did it, or you think the hardware did it? Also do you think it is possible to use debugger to check registers while in bootloader (did bootloader disabled debugging)?
 ```
 
-I got answer:
+I got answer confirming the bootloader did check RB_BOOT_LOAD_MAN, but not clearing other register before final reboot:
+
+<details>
+
+<summary>Response from Agent</summary>
 
 ```
 Q1: Was it the bootloader or the hardware that cleared R8_RST_WDOG_CTRL / R8_GLOB_ROM_CFG?
@@ -164,11 +173,19 @@ Alternatively, set a hardware breakpoint at 0x3D59C (the lbu a5,70(a3) instructi
 The one minor wrinkle: CFG_ROM_READ = 0xFF is set on this chip (ISP read protection), but on WCH chips this only protects against ISP reads, not WCH-Link debug access. The debug module should still work.
 ```
 
+</details>
+
 Then let's do:
 
 ```
 Let's do a last effort test. Can you try to see if there is a way to jump to bootloader without reset. Maybe if you just jump there, it will jump back to user code quickly?
 ```
+
+And the agent confirms we can jump from main code to bootloader code, although the DFU get skipped.
+
+<details>
+
+<summary>Response from Agent</summary>
 
 ## Final experiment: jump directly to bootloader (no reset)
 
@@ -208,3 +225,6 @@ Combined with the earlier finding that the hardware clears all RWA registers (in
 | Jump to bootloader with conditions set (no reset) | `0` — latch not re-evaluated without hardware reset |
 
 There is no path from user code to set `RB_BOOT_LOAD_MAN=1`. **The only reliable software-only method to enter USB DFU from user code is `APPJumpBoot` (erase flash page 0 + software reset).**
+
+</details>
+
