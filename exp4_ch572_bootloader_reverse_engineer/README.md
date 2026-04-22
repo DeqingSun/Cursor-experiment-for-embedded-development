@@ -246,6 +246,6 @@ Overall, the agent did a good job to test the idea and confirm this approach is 
 
 In ch32fun, [biemster](https://github.com/cnlohr/ch32fun/commit/db87b2d3ec77570f0b7d04e3f6968d079bac8c2e) contributed a way to jump to bootloader, by copying the bootloader into RAM, patch it and then jump into it.
 
-I did not rely heavily on agent since troubleshooting requires frequent change of tools. But overall the agent gave me valuable suggestions about permission and gdb usages.
+I did not rely heavily on agent since troubleshooting requires frequent change of tools (CH572 share PA1 and PA0 for USB and SWD). But overall the agent gave me valuable suggestions about permission and gdb usages.
 
 In the end I got the code working! Now the [code](https://github.com/DeqingSun/arduino_core_ch32/commit/44e59b80e5968a26def0ebfde0164d2dfb2bf9af) is a part of CH572 Arduino USB Serial code.
